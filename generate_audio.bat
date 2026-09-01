@@ -1,7 +1,7 @@
 @echo off
 setlocal
 
-if not exist .venv\Scripts\python.exe (
+if not exist .venv\Scripts\pythonw.exe (
     echo Virtual environment not found.
     echo Run these commands first:
     echo   python -m venv .venv
@@ -12,4 +12,5 @@ if not exist .venv\Scripts\python.exe (
     exit /b 1
 )
 
-.venv\Scripts\python.exe app.py
+REM Launch the GUI without opening a separate Command Prompt window.
+.venv\Scripts\pythonw.exe app.py
