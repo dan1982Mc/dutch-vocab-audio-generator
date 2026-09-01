@@ -4,6 +4,10 @@
   "dutch_rate": "-5%",
   "english_rate": "-5%",
 
+  "words_per_lesson": 50,
+  "output_dir": "output",
+  "output_pattern": "lesson_{:02d}.mp3",
+
   "lesson": {
     "new_word": {
       "pause_after_dutch_ms": 2500,
@@ -34,6 +38,5 @@
   },
 
   "include_example_sentence": true,
-  "include_memory_connector": true,
-  "output_file": "output/vocabulary.mp3"
+  "include_memory_connector": true
 }
