@@ -1,0 +1,9 @@
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+env/
+.DS_Store
+output/*.mp3
+output/*.wav
+output/*.m4a
