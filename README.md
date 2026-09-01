@@ -25,6 +25,16 @@ Choose the first and last word to include:
 
 The numbering applies to the combined vocabulary from the selected JSON files.
 
+### Output filename
+
+Enter the desired MP3 filename in the **Output file** field. The `.mp3` extension is added automatically when omitted.
+
+The file is saved in `output/`. When the selected range creates multiple 25-word lessons, the generator automatically adds `_01`, `_02`, and so on to the requested filename.
+
+Example:
+
+`commute.mp3` → `commute_01.mp3`, `commute_02.mp3`
+
 ### Lesson splitting
 
 The selected range is automatically split into lessons of **25 words**.
@@ -40,11 +50,13 @@ The 25-word split is the single standard setting in the current Part 1 version.
 
 ### Estimated duration
 
-The program shows an approximate audio duration before generation. The estimate is based on the current tested standard lesson format and is only an estimate because actual duration depends on the length of the words, translations, sentences, and memory connectors.
+The program shows an approximate audio duration before generation. The estimate uses the current tested result of about **25.5 minutes for 25 words** and is only an estimate; actual duration depends on the content length.
 
 ### Live generation window
 
-When generation starts, a separate progress window shows the actual output from the audio generator, including the current lesson, word number, speech segments, and errors if something goes wrong.
+When generation starts, a separate progress window shows the generator output as it happens, including lesson number, word being processed, speech segments, completion messages, and errors.
+
+The generator process is run unbuffered so the log should update continuously rather than appearing only after generation finishes.
 
 ### Lesson type
 
@@ -176,7 +188,7 @@ After the environment and dependencies are installed, simply double-click:
 
 `generate_audio.bat`
 
-The batch file starts the desktop program using the repository's `.venv` Python environment.
+The batch file launches the GUI using the repository's `.venv` Python environment **without opening a separate Command Prompt window**.
 
 You do **not** need to activate `.venv` manually when launching with the batch file.
 
@@ -186,25 +198,18 @@ You do **not** need to activate `.venv` manually when launching with the batch f
 2. Double-click `generate_audio.bat`.
 3. Select one or more vocabulary files.
 4. Enter the start and end word numbers.
-5. Confirm the estimated duration.
-6. Leave the lesson type as `Standard lesson (current format)` for Part 1.
-7. Click **Generate audio**.
-8. Watch the live progress window.
-9. Find the MP3 files in `output/`.
-
-Generated lessons use names such as:
-
-```text
-output/lesson_01.mp3
-output/lesson_02.mp3
-output/lesson_03.mp3
-```
+5. Enter an output filename.
+6. Confirm the estimated duration.
+7. Leave the lesson type as `Standard lesson (current format)` for Part 1.
+8. Click **Generate audio**.
+9. Watch the live progress window.
+10. Find the MP3 files in `output/`.
 
 ## Command-line mode
 
 The original command-line generator is still available if needed.
 
-Generate all words using the configured 25-word lesson split:
+Generate all words using the configured lesson split:
 
 ```bat
 python generate_audio.py
