@@ -1,22 +1,37 @@
 [
   {
     "dutch": "afkeer",
-    "english": "dislike"
+    "english": "dislike",
+    "sentence_nl": "Hij voelde een sterke afkeer van geweld.",
+    "sentence_en": "He felt a strong dislike of violence.",
+    "memory": "Think of turning away from something because you strongly dislike it."
   },
   {
     "dutch": "omringd",
-    "english": "surrounded"
+    "english": "surrounded",
+    "sentence_nl": "Hij stond omringd door vrienden.",
+    "sentence_en": "He was surrounded by friends.",
+    "memory": "Imagine people standing all around you."
   },
   {
     "dutch": "verwaand",
-    "english": "arrogant"
+    "english": "arrogant",
+    "sentence_nl": "Hij komt soms erg verwaand over.",
+    "sentence_en": "He sometimes comes across as very arrogant.",
+    "memory": "Imagine someone looking down on everyone else from a high throne."
   },
   {
     "dutch": "verdedigen",
-    "english": "to defend"
+    "english": "to defend",
+    "sentence_nl": "Zij verdedigde haar standpunt rustig.",
+    "sentence_en": "She calmly defended her position.",
+    "memory": "Picture a shield protecting your position."
   },
   {
     "dutch": "wederzijds",
-    "english": "mutual"
+    "english": "mutual",
+    "sentence_nl": "Er was wederzijds respect tussen beide partijen.",
+    "sentence_en": "There was mutual respect between both parties.",
+    "memory": "Think of two people shaking hands: both sides are involved."
   }
 ]
