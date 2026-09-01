@@ -1,2 +1,4 @@
-edge-tts>=7.0.0
-pydub>=0.25.1
+# Tested with Python 3.13.x (including 3.13.15)
+edge-tts==7.2.8
+pydub==0.25.1
+audioop-lts==0.2.2; python_version >= "3.13"
