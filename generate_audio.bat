@@ -6,11 +6,10 @@ if not exist .venv\Scripts\python.exe (
     echo Run these commands first:
     echo   python -m venv .venv
     echo   .venv\Scripts\activate
-    echo   pip install -r requirements.txt
+    echo   python -m pip install -r requirements.txt
     echo.
     pause
     exit /b 1
 )
 
-.venv\Scripts\python.exe generate_audio.py %*
-pause
+.venv\Scripts\python.exe app.py
