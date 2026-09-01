@@ -3,11 +3,37 @@
   "english_voice": "en-US-JennyNeural",
   "dutch_rate": "-5%",
   "english_rate": "-5%",
-  "pause_after_dutch_ms": 2000,
-  "pause_after_english_ms": 3000,
-  "repeat_each_word": 1,
-  "include_example_sentence": false,
-  "pause_before_example_ms": 1500,
-  "pause_after_example_ms": 2500,
+
+  "lesson": {
+    "new_word": {
+      "pause_after_dutch_ms": 2500,
+      "pause_after_english_ms": 1000,
+      "pause_before_sentence_ms": 1000,
+      "pause_after_sentence_nl_ms": 1500,
+      "pause_after_sentence_en_ms": 1500,
+      "pause_before_memory_ms": 1000,
+      "pause_after_memory_ms": 2500,
+      "repeat_word_after_memory": true
+    },
+    "review": {
+      "words_per_block": 5,
+      "pause_after_dutch_ms": 4000,
+      "pause_after_english_ms": 1500
+    },
+    "final_review": {
+      "pause_after_dutch_ms": 3000,
+      "pause_after_english_ms": 1000,
+      "include_example_sentence": true
+    }
+  },
+
+  "repetition": {
+    "words_per_new_block": 5,
+    "review_blocks": 1,
+    "final_review": true
+  },
+
+  "include_example_sentence": true,
+  "include_memory_connector": true,
   "output_file": "output/vocabulary.mp3"
 }
