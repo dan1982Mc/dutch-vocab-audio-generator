@@ -1,19 +1,20 @@
 #!/usr/bin/env python3
-"""Simple Windows desktop interface for the Dutch vocabulary audio generator."""
+"""Simple desktop interface for the Dutch vocabulary audio generator."""
 from __future__ import annotations
 
 import json
 import subprocess
 import sys
 import threading
-from pathlib import Path
 import tkinter as tk
-from tkinter import filedialog, messagebox, ttk
+from pathlib import Path
+from tkinter import messagebox, ttk
 
 ROOT = Path(__file__).resolve().parent
 DATA_DIR = ROOT / "data"
 OUTPUT_DIR = ROOT / "output"
 GENERATOR = ROOT / "generate_audio.py"
+CONFIG = ROOT / "config.json"
 
 
 def load_json(path: Path):
@@ -26,7 +27,8 @@ def load_words(path: Path) -> list[dict]:
         data = data["words"]
     if not isinstance(data, list):
         raise ValueError(f"{path.name} must contain a JSON list or a 'words' list.")
-    result = []
+
+    result: list[dict] = []
     for i, item in enumerate(data, 1):
         if not isinstance(item, dict):
             raise ValueError(f"{path.name}: item {i} is not an object.")
@@ -47,32 +49,42 @@ class AudioGeneratorApp:
     def __init__(self, root: tk.Tk) -> None:
         self.root = root
         self.root.title("Dutch Vocabulary Audio Generator")
-        self.root.geometry("720x610")
-        self.root.minsize(680, 560)
+        self.root.geometry("760x670")
+        self.root.minsize(700, 600)
 
         self.file_vars: dict[str, tk.BooleanVar] = {}
-        self.words: list[dict] = []
         self.generation_running = False
         self.log_window: tk.Toplevel | None = None
         self.log_text: tk.Text | None = None
+        self.last_output_files: list[str] = []
 
         self.start_var = tk.StringVar(value="1")
         self.end_var = tk.StringVar(value="25")
         self.lesson_type_var = tk.StringVar(value="Standard lesson (current format)")
         self.summary_var = tk.StringVar(value="Select vocabulary files to begin.")
+        self.estimate_var = tk.StringVar(value="Estimated audio: —")
         self.status_var = tk.StringVar(value="Ready")
 
         self.build_ui()
         self.refresh_files()
+        self.start_var.trace_add("write", lambda *_: self.update_summary())
+        self.end_var.trace_add("write", lambda *_: self.update_summary())
 
     def build_ui(self) -> None:
         main = ttk.Frame(self.root, padding=16)
         main.pack(fill="both", expand=True)
 
-        ttk.Label(main, text="Dutch Vocabulary Audio Generator", font=("Segoe UI", 18, "bold")).pack(anchor="w")
-        ttk.Label(main, text="Part 1: select vocabulary, choose a range, then generate the current lesson format.").pack(anchor="w", pady=(2, 14))
+        ttk.Label(
+            main,
+            text="Dutch Vocabulary Audio Generator",
+            font=("Segoe UI", 18, "bold"),
+        ).pack(anchor="w")
+        ttk.Label(
+            main,
+            text="Part 1 — choose vocabulary and range, then generate the current standard lesson.",
+        ).pack(anchor="w", pady=(2, 14))
 
-        file_frame = ttk.LabelFrame(main, text="1. Vocabulary files (data folder)", padding=10)
+        file_frame = ttk.LabelFrame(main, text="1. Vocabulary files", padding=10)
         file_frame.pack(fill="x")
 
         self.file_container = ttk.Frame(file_frame)
@@ -92,10 +104,11 @@ class AudioGeneratorApp:
         ttk.Entry(row, textvariable=self.start_var, width=8).pack(side="left", padx=(6, 18))
         ttk.Label(row, text="End word:").pack(side="left")
         ttk.Entry(row, textvariable=self.end_var, width=8).pack(side="left", padx=(6, 18))
-        ttk.Label(row, text="Default lesson split:").pack(side="left")
-        ttk.Label(row, text="25 words").pack(side="left", padx=6)
+        ttk.Label(row, text="Automatic split:").pack(side="left")
+        ttk.Label(row, text="25 words per lesson", font=("Segoe UI", 9, "bold")).pack(side="left", padx=6)
 
-        ttk.Label(selection_frame, textvariable=self.summary_var).pack(anchor="w", pady=(10, 0))
+        ttk.Label(selection_frame, textvariable=self.summary_var).pack(anchor="w", pady=(10, 2))
+        ttk.Label(selection_frame, textvariable=self.estimate_var).pack(anchor="w")
 
         lesson_frame = ttk.LabelFrame(main, text="3. Lesson type", padding=10)
         lesson_frame.pack(fill="x", pady=(12, 0))
@@ -105,7 +118,10 @@ class AudioGeneratorApp:
             state="readonly",
             values=["Standard lesson (current format)"],
         ).pack(fill="x")
-        ttk.Label(lesson_frame, text="More lesson types will be implemented in Part 2.").pack(anchor="w", pady=(6, 0))
+        ttk.Label(
+            lesson_frame,
+            text="Lesson type choices will be implemented in Part 2. No lesson logic is changed in Part 1.",
+        ).pack(anchor="w", pady=(6, 0))
 
         action_frame = ttk.Frame(main)
         action_frame.pack(fill="x", pady=(16, 0))
@@ -121,6 +137,12 @@ class AudioGeneratorApp:
         self.progress = ttk.Progressbar(main, mode="indeterminate")
         self.progress.pack(fill="x", pady=(6, 0))
 
+        ttk.Label(
+            main,
+            text="Output files are written to the output folder. Generated audio is not uploaded to GitHub.",
+            foreground="#555555",
+        ).pack(anchor="w", pady=(10, 0))
+
     def refresh_files(self) -> None:
         for child in self.file_container.winfo_children():
             child.destroy()
@@ -130,13 +152,24 @@ class AudioGeneratorApp:
         if not files:
             ttk.Label(self.file_container, text="No .json files found in data/.").pack(anchor="w")
             self.summary_var.set("No vocabulary files found.")
+            self.estimate_var.set("Estimated audio: —")
             return
 
         for path in files:
             var = tk.BooleanVar(value=(path.name == "words.json"))
             self.file_vars[path.name] = var
-            ttk.Checkbutton(self.file_container, text=path.name, variable=var, command=self.update_summary).pack(anchor="w")
+            ttk.Checkbutton(
+                self.file_container,
+                text=path.name,
+                variable=var,
+                command=self.update_summary,
+            ).pack(anchor="w")
 
+        try:
+            total = len(self.get_selected_words())
+            self.end_var.set(str(min(25, total)) if total else "25")
+        except Exception:
+            pass
         self.update_summary()
 
     def selected_files(self) -> list[Path]:
@@ -150,20 +183,33 @@ class AudioGeneratorApp:
 
     def update_summary(self) -> None:
         try:
-            self.words = self.get_selected_words()
-            total = len(self.words)
+            total = len(self.get_selected_words())
             if total == 0:
                 self.summary_var.set("Selected files contain no words.")
+                self.estimate_var.set("Estimated audio: —")
                 return
+
             start = self.parse_int(self.start_var.get(), 1)
             end = self.parse_int(self.end_var.get(), min(25, total))
-            selected = max(0, min(total, end) - max(1, start) + 1) if start <= end else 0
+            if start < 1 or end < start:
+                selected = 0
+            else:
+                selected = max(0, min(total, end) - start + 1)
+
             lessons = (selected + 24) // 25 if selected else 0
             self.summary_var.set(
                 f"Available words: {total}    |    Selected: {selected}    |    Lessons: {lessons}    |    Split: 25 words/lesson"
             )
+
+            # Current tested baseline: 25 words produced about 25.5 minutes.
+            # This is an estimate only; actual duration varies with text length.
+            estimated_minutes = selected * 25.5 / 25 if selected else 0
+            self.estimate_var.set(
+                f"Estimated audio: ~{estimated_minutes:.1f} minutes (based on the current standard lesson format)"
+            )
         except Exception as exc:
             self.summary_var.set(f"Selection error: {exc}")
+            self.estimate_var.set("Estimated audio: —")
 
     @staticmethod
     def parse_int(value: str, default: int) -> int:
@@ -191,17 +237,21 @@ class AudioGeneratorApp:
             raise ValueError("Start must be at least 1 and not greater than end.")
         if end > len(words):
             raise ValueError(f"End word is {end}, but only {len(words)} words are available.")
-
         return words, start, end
 
     def create_log_window(self) -> None:
         if self.log_window and self.log_window.winfo_exists():
+            self.log_window.deiconify()
             self.log_window.lift()
+            if self.log_text:
+                self.log_text.configure(state="normal")
+                self.log_text.delete("1.0", "end")
+                self.log_text.configure(state="disabled")
             return
 
         self.log_window = tk.Toplevel(self.root)
         self.log_window.title("Audio generation progress")
-        self.log_window.geometry("850x600")
+        self.log_window.geometry("900x620")
         self.log_window.protocol("WM_DELETE_WINDOW", self.hide_log_window)
 
         frame = ttk.Frame(self.log_window, padding=10)
@@ -253,15 +303,14 @@ class AudioGeneratorApp:
             return
 
         self.create_log_window()
-        if self.log_window:
-            self.log_window.deiconify()
-            self.log_window.lift()
-        self.log("Starting audio generation...\n")
+        self.log(f"Selected files: {', '.join(path.name for path in self.selected_files())}\n")
         self.log(f"Selected words: {start}-{end} ({len(selected)} words)\n")
         self.log("Lesson type: Standard lesson (current format)\n")
         self.log("Lesson size: 25 words\n")
+        self.log(f"Estimated audio: ~{len(selected) * 25.5 / 25:.1f} minutes\n\n")
 
         self.generation_running = True
+        self.last_output_files = []
         self.generate_button.configure(state="disabled")
         self.progress.start(10)
         self.status_var.set("Generating...")
@@ -270,14 +319,16 @@ class AudioGeneratorApp:
         thread.start()
 
     def run_generation(self, selected: list[dict]) -> None:
-        # Use a temporary JSON file so the existing generator can remain the
-        # authoritative lesson engine. No permanent vocabulary file is changed.
         import tempfile
 
         temp_path: Path | None = None
         try:
             with tempfile.NamedTemporaryFile(
-                mode="w", suffix=".json", delete=False, encoding="utf-8", dir=ROOT
+                mode="w",
+                suffix=".json",
+                delete=False,
+                encoding="utf-8",
+                dir=ROOT,
             ) as temp:
                 json.dump(selected, temp, ensure_ascii=False, indent=2)
                 temp_path = Path(temp.name)
@@ -308,7 +359,8 @@ class AudioGeneratorApp:
             else:
                 self.root.after(0, lambda: self.finish_generation(False, return_code))
         except Exception as exc:
-            self.root.after(0, lambda: self.log(f"ERROR: {exc}\n"))
+            error_text = str(exc)
+            self.root.after(0, lambda: self.log(f"ERROR: {error_text}\n"))
             self.root.after(0, lambda: self.finish_generation(False, None))
         finally:
             if temp_path:
@@ -333,7 +385,7 @@ class AudioGeneratorApp:
 
 def main() -> None:
     root = tk.Tk()
-    app = AudioGeneratorApp(root)
+    AudioGeneratorApp(root)
     root.mainloop()
 
 
