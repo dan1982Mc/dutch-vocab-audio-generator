@@ -1,0 +1,13 @@
+{
+  "dutch_voice": "nl-NL-ColetteNeural",
+  "english_voice": "en-US-JennyNeural",
+  "dutch_rate": "-5%",
+  "english_rate": "-5%",
+  "pause_after_dutch_ms": 2000,
+  "pause_after_english_ms": 3000,
+  "repeat_each_word": 1,
+  "include_example_sentence": false,
+  "pause_before_example_ms": 1500,
+  "pause_after_example_ms": 2500,
+  "output_file": "output/vocabulary.mp3"
+}
