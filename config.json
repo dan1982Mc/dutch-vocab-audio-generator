@@ -4,7 +4,7 @@
   "dutch_rate": "-5%",
   "english_rate": "-5%",
 
-  "words_per_lesson": 50,
+  "words_per_lesson": 25,
   "output_dir": "output",
   "output_pattern": "lesson_{:02d}.mp3",
 
