@@ -1,11 +1,5 @@
 #!/usr/bin/env python3
-"""Generate Dutch -> English vocabulary learning lessons.
-
-A vocabulary JSON file is automatically split into configurable lesson sizes
-(default: 50 words). Each lesson uses the configured learning sequence:
-Dutch -> English -> Dutch example -> English example -> memory connector ->
-repeat, followed by recall review blocks and a final review.
-"""
+"""Generate Dutch -> English vocabulary learning lessons or full-text narration."""
 from __future__ import annotations
 
 import argparse
@@ -71,6 +65,25 @@ def load_words(path: Path) -> list[dict[str, str]]:
     return words
 
 
+def load_read_dutch(path: Path) -> dict[str, str]:
+    data = load_json(path)
+    if not isinstance(data, dict):
+        raise SystemExit("Read Dutch JSON must be an object.")
+
+    text = str(data.get("text", "")).strip()
+    voice = str(data.get("voice", "nl-NL-ColetteNeural")).strip()
+    rate = str(data.get("rate", "-5%")).strip()
+
+    if not text:
+        raise SystemExit("Read Dutch JSON needs a non-empty 'text' field.")
+    if not voice:
+        raise SystemExit("Read Dutch JSON needs a non-empty 'voice' field.")
+    if not rate:
+        raise SystemExit("Read Dutch JSON needs a non-empty 'rate' field.")
+
+    return {"title": str(data.get("title", "")).strip(), "voice": voice, "rate": rate, "text": text}
+
+
 def pause(audio: AudioSegment, milliseconds: int) -> AudioSegment:
     return audio + AudioSegment.silent(duration=max(0, milliseconds))
 
@@ -84,11 +97,17 @@ async def make_segment(text: str, voice: str, rate: str, path: Path) -> AudioSeg
     return AudioSegment.from_file(path, format="mp3")
 
 
-def int_setting(container: dict[str, Any], key: str, default: int) -> int:
-    try:
-        return max(0, int(container.get(key, default)))
-    except (TypeError, ValueError):
-        return default
+async def build_read_dutch(text: str, voice: str, rate: str, output: Path) -> float:
+    output.parent.mkdir(parents=True, exist_ok=True)
+    print("Read Dutch: one full text, one MP3")
+    print(f"  Voice: {voice}")
+    print(f"  Rate: {rate}")
+    print(f"  Characters: {len(text)}")
+    print(f"  Encoding: {output}")
+
+    await speak(text, voice, rate, output)
+    audio = AudioSegment.from_file(output, format="mp3")
+    return audio.duration_seconds / 60
 
 
 async def build_lesson(
@@ -174,7 +193,6 @@ async def build_lesson(
 
         print(f"\nLesson {lesson_number}/{total_lessons}: {len(words)} words")
 
-        # Phase 1 + Phase 2: teach each block, then immediate recall review.
         for start in range(0, len(words), words_per_block):
             block = words[start:start + words_per_block]
             print(f"  Teaching words {start + 1}-{start + len(block)}")
@@ -188,7 +206,6 @@ async def build_lesson(
                     await recall(word, r_dutch, r_english)
                 lesson = pause(lesson, 1500)
 
-        # Phase 3: final review of this 50-word lesson.
         if final_review:
             print("  Final review")
             for word in words:
@@ -201,6 +218,13 @@ async def build_lesson(
         lesson.export(output, format="mp3", bitrate="128k")
 
     return lesson.duration_seconds / 60, segment_count
+
+
+def int_setting(container: dict[str, Any], key: str, default: int) -> int:
+    try:
+        return max(0, int(container.get(key, default)))
+    except (TypeError, ValueError):
+        return default
 
 
 def resolve_output_paths(config: dict[str, Any], lesson_count: int, cli_output: Path | None) -> list[Path]:
@@ -220,14 +244,38 @@ def resolve_output_paths(config: dict[str, Any], lesson_count: int, cli_output: 
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Generate Dutch -> English vocabulary learning lessons.")
+    parser = argparse.ArgumentParser(description="Generate Dutch vocabulary learning lessons or full-text narration.")
     parser.add_argument("--words", type=Path, default=DEFAULT_WORDS, help="Vocabulary JSON file")
     parser.add_argument("--config", type=Path, default=DEFAULT_CONFIG, help="Configuration JSON file")
     parser.add_argument("--output", type=Path, default=None, help="Output MP3 name/base name")
     parser.add_argument("--limit", type=int, default=None, help="Only use the first N words")
+    parser.add_argument("--read-dutch", type=Path, default=None, help="Read a full-text Dutch JSON file as one MP3")
     args = parser.parse_args()
 
     config = load_config(args.config)
+
+    if args.read_dutch is not None:
+        if args.output is None:
+            raise SystemExit("--output is required with --read-dutch.")
+        narration = load_read_dutch(args.read_dutch)
+        try:
+            minutes = asyncio.run(build_read_dutch(
+                narration["text"], narration["voice"], narration["rate"], args.output
+            ))
+            print("\nRead Dutch completed.")
+            if narration["title"]:
+                print(f"Title: {narration['title']}")
+            print(f"Audio: {minutes:.1f} minutes")
+            print(f"File: {args.output}")
+        except KeyboardInterrupt:
+            print("\nCancelled.")
+            sys.exit(130)
+        except Exception as exc:
+            print(f"Generation failed: {exc}")
+            print("Check Internet access for edge-tts and that FFmpeg is installed and available on PATH.")
+            sys.exit(1)
+        return
+
     words = load_words(args.words)
     if args.limit is not None:
         if args.limit < 1:
