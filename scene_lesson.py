@@ -19,8 +19,20 @@ def pause(audio: AudioSegment, ms: int) -> AudioSegment:
 
 
 async def speech(text: str, voice: str, rate: str, path: Path) -> AudioSegment:
-    await edge_tts.Communicate(text, voice=voice, rate=rate).save(str(path))
-    return AudioSegment.from_file(path, format="mp3")
+    """Generate one speech segment, retrying transient Edge-TTS failures."""
+    last_error: Exception | None = None
+    for attempt in range(1, 4):
+        try:
+            await edge_tts.Communicate(text, voice=voice, rate=rate).save(str(path))
+            if not path.exists() or path.stat().st_size == 0:
+                raise RuntimeError("Edge-TTS returned an empty audio file.")
+            return AudioSegment.from_file(path, format="mp3")
+        except Exception as exc:
+            last_error = exc
+            if attempt < 3:
+                print(f"    TTS retry {attempt}/2: {voice} - {type(exc).__name__}", flush=True)
+                await asyncio.sleep(1.5 * attempt)
+    raise last_error  # type: ignore[misc]
 
 
 def required(value: Any, field: str) -> str:
@@ -80,18 +92,27 @@ async def build(lesson: dict[str, Any], output: Path) -> tuple[float, int]:
         async def add(text: str, role: str) -> None:
             nonlocal audio, count
             count += 1
+            print(f"    [{count}] {role}: {text[:70]}", flush=True)
             audio += await speech(text, voices[role], rates[role], temp / f"{count:06d}.mp3")
 
         async def add_coach(text: str, language: str) -> None:
-            """Add coach content using Dutch for NL fields and English for EN fields."""
-            await add(text, "coach")
+            """Use a Dutch voice for Dutch coach fields and the coach voice for English."""
+            role = "female" if language == "nl" else "coach"
+            await add(text, role)
 
         for scene in lesson["scenes"]:
             number = scene.get("scene_number", "")
             title = str(scene.get("title", "")).strip()
             print(f"  Scene {number}: {title}", flush=True)
-            await add(f"Scene {number}. {title}", "coach")
+
+            # Keep the English coach for the section label, but use a Dutch
+            # voice for the Dutch scene title so it is pronounced correctly.
+            await add(f"Scene {number}.", "coach")
+            audio = pause(audio, 400)
+            if title:
+                await add(title, "female")
             audio = pause(audio, 800)
+
             for line in scene.get("dialogue", []):
                 role = line.get("speaker")
                 if role not in ("male", "female"):
@@ -99,11 +120,12 @@ async def build(lesson: dict[str, Any], output: Path) -> tuple[float, int]:
                 await add(required(line.get("text"), "dialogue.text"), role)
                 audio = pause(audio, 500)
             audio = pause(audio, 1000)
+
             for item in scene.get("coach", []):
                 term = required(item.get("term"), "coach.term")
                 explanation = item.get("explanation") or {}
 
-                # Coach section language follows the JSON field structure:
+                # Language follows the JSON field structure:
                 # term/forms/explanation.nl/nl_example/additional_uses.nl/note = Dutch
                 # explanation.en_meaning/additional_uses.en/memory_connector = English
                 await add_coach(term, "nl")
