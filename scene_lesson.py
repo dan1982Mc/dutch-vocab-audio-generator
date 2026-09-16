@@ -82,6 +82,10 @@ async def build(lesson: dict[str, Any], output: Path) -> tuple[float, int]:
             count += 1
             audio += await speech(text, voices[role], rates[role], temp / f"{count:06d}.mp3")
 
+        async def add_coach(text: str, language: str) -> None:
+            """Add coach content using Dutch for NL fields and English for EN fields."""
+            await add(text, "coach")
+
         for scene in lesson["scenes"]:
             number = scene.get("scene_number", "")
             title = str(scene.get("title", "")).strip()
@@ -98,22 +102,42 @@ async def build(lesson: dict[str, Any], output: Path) -> tuple[float, int]:
             for item in scene.get("coach", []):
                 term = required(item.get("term"), "coach.term")
                 explanation = item.get("explanation") or {}
-                await add(term, "coach")
-                audio = pause(audio, 600)
-                await add(required(explanation.get("nl"), f"coach explanation.nl for {term}"), "coach")
+
+                # Coach section language follows the JSON field structure:
+                # term/forms/explanation.nl/nl_example/additional_uses.nl/note = Dutch
+                # explanation.en_meaning/additional_uses.en/memory_connector = English
+                await add_coach(term, "nl")
                 audio = pause(audio, 500)
-                await add(required(explanation.get("nl_example"), f"coach explanation.nl_example for {term}"), "coach")
+
+                forms = item.get("forms", [])
+                if isinstance(forms, list):
+                    for form in forms:
+                        form_text = str(form or "").strip()
+                        if form_text:
+                            await add_coach(form_text, "nl")
+                            audio = pause(audio, 250)
+                audio = pause(audio, 400)
+
+                await add_coach(required(explanation.get("nl"), f"coach explanation.nl for {term}"), "nl")
                 audio = pause(audio, 500)
-                await add(required(explanation.get("en_meaning"), f"coach explanation.en_meaning for {term}"), "coach")
+                await add_coach(required(explanation.get("nl_example"), f"coach explanation.nl_example for {term}"), "nl")
+                audio = pause(audio, 500)
+                await add_coach(required(explanation.get("en_meaning"), f"coach explanation.en_meaning for {term}"), "en")
                 audio = pause(audio, 700)
+
                 for use in item.get("additional_uses", []):
-                    await add(required(use.get("nl"), f"additional use for {term}"), "coach")
+                    await add_coach(required(use.get("nl"), f"additional use for {term}"), "nl")
                     audio = pause(audio, 350)
-                    await add(required(use.get("en"), f"additional English use for {term}"), "coach")
+                    await add_coach(required(use.get("en"), f"additional English use for {term}"), "en")
                     audio = pause(audio, 350)
+                    note = str(use.get("note", "")).strip()
+                    if note:
+                        await add_coach(note, "nl")
+                        audio = pause(audio, 350)
+
                 memory = str(item.get("memory_connector", "")).strip()
                 if memory:
-                    await add(memory, "coach")
+                    await add_coach(memory, "en")
                     audio = pause(audio, 900)
             audio = pause(audio, 1200)
 
