@@ -32,11 +32,22 @@ def required(value: Any, field: str) -> str:
 
 def load_lesson(path: Path) -> dict[str, Any]:
     try:
-        data = json.loads(path.read_text(encoding="utf-8"))
+        # Match the GUI loader: accept UTF-8 BOM and Markdown fenced JSON.
+        text = path.read_text(encoding="utf-8-sig").strip()
+        if not text:
+            raise SystemExit(f"File is empty: {path}")
+        if text.startswith("```"):
+            lines = text.splitlines()
+            if lines and lines[0].strip().startswith("```"):
+                lines = lines[1:]
+            if lines and lines[-1].strip() == "```":
+                lines = lines[:-1]
+            text = "\n".join(lines).strip()
+        data = json.loads(text)
     except FileNotFoundError:
         raise SystemExit(f"File not found: {path}")
     except json.JSONDecodeError as exc:
-        raise SystemExit(f"Invalid JSON in {path}: {exc}")
+        raise SystemExit(f"Invalid JSON in {path}: {exc.msg}, line {exc.lineno}, column {exc.colno}")
     if not isinstance(data, dict) or not isinstance(data.get("lesson"), dict):
         raise SystemExit("Scene lesson JSON must contain a 'lesson' object.")
     lesson = data["lesson"]
@@ -74,7 +85,7 @@ async def build(lesson: dict[str, Any], output: Path) -> tuple[float, int]:
         for scene in lesson["scenes"]:
             number = scene.get("scene_number", "")
             title = str(scene.get("title", "")).strip()
-            print(f"  Scene {number}: {title}")
+            print(f"  Scene {number}: {title}", flush=True)
             await add(f"Scene {number}. {title}", "coach")
             audio = pause(audio, 800)
             for line in scene.get("dialogue", []):
@@ -106,7 +117,7 @@ async def build(lesson: dict[str, Any], output: Path) -> tuple[float, int]:
                     audio = pause(audio, 900)
             audio = pause(audio, 1200)
 
-        print("  Fast replay")
+        print("  Fast replay", flush=True)
         await add("Fast replay.", "coach")
         audio = pause(audio, 700)
         for item in lesson["fast_replay"]:
@@ -116,7 +127,7 @@ async def build(lesson: dict[str, Any], output: Path) -> tuple[float, int]:
             await add(required(item.get("text"), "fast_replay.text"), role)
             audio = pause(audio, 400)
 
-        print("  Shadow practice")
+        print("  Shadow practice", flush=True)
         await add("Shadow practice. Listen, then repeat during the pause.", "coach")
         audio = pause(audio, 900)
         for item in lesson["shadow_practice"]:
@@ -149,7 +160,7 @@ def main() -> None:
         print("\nCancelled.")
         sys.exit(130)
     except Exception as exc:
-        print(f"Generation failed: {exc}")
+        print(f"Generation failed: {type(exc).__name__}: {exc}")
         print("Check Internet access for edge-tts and that FFmpeg is installed and available on PATH.")
         sys.exit(1)
     print("\nScene & Dialogue lesson completed.")
