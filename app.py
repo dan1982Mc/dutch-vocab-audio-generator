@@ -15,6 +15,7 @@ ROOT = Path(__file__).resolve().parent
 DATA_DIR = ROOT / "data"
 OUTPUT_DIR = ROOT / "output"
 GENERATOR = ROOT / "generate_audio.py"
+SCENE_GENERATOR = ROOT / "scene_lesson.py"
 
 PYTHON_EXECUTABLE = Path(sys.executable).with_name("python.exe")
 if not PYTHON_EXECUTABLE.exists():
@@ -104,8 +105,8 @@ class AudioGeneratorApp:
         ttk.Label(output_frame, text="Saved in output/. If several 25-word lessons are created, _01, _02, etc. are added automatically.").pack(anchor="w", pady=(6, 0))
         lesson_frame = ttk.LabelFrame(main, text="4. Lesson type", padding=10)
         lesson_frame.pack(fill="x", pady=(12, 0))
-        ttk.Combobox(lesson_frame, textvariable=self.lesson_type_var, state="readonly", values=["Standard lesson (current format)", "Read Dutch"]).pack(fill="x")
-        ttk.Label(lesson_frame, text="Read Dutch uses one JSON text and produces one MP3 without splitting the text.").pack(anchor="w", pady=(6, 0))
+        ttk.Combobox(lesson_frame, textvariable=self.lesson_type_var, state="readonly", values=["Standard lesson (current format)", "Read Dutch", "Scene & Dialogue Lesson"]).pack(fill="x")
+        ttk.Label(lesson_frame, text="Read Dutch uses one JSON text and produces one MP3 without splitting the text. Scene & Dialogue uses three voices defined in its JSON and produces one MP3.").pack(anchor="w", pady=(6, 0))
         action_frame = ttk.Frame(main)
         action_frame.pack(fill="x", pady=(16, 0))
         self.generate_button = ttk.Button(action_frame, text="Generate audio", command=self.start_generation)
@@ -228,6 +229,37 @@ class AudioGeneratorApp:
         try: output_name = self.output_name()
         except Exception as exc:
             messagebox.showerror("Cannot generate audio", str(exc)); return
+
+        if self.lesson_type_var.get() == "Scene & Dialogue Lesson":
+            selected_files = self.selected_files()
+            if len(selected_files) != 1:
+                messagebox.showerror("Cannot generate Scene & Dialogue lesson", "Select exactly one Scene & Dialogue JSON file.")
+                return
+            input_path = selected_files[0]
+            try:
+                data = load_json(input_path)
+                lesson = data.get("lesson") if isinstance(data, dict) else None
+                if not isinstance(lesson, dict): raise ValueError("JSON must contain a 'lesson' object.")
+                if not isinstance(lesson.get("speakers"), dict): raise ValueError("JSON must contain 'lesson.speakers'.")
+                if not isinstance(lesson.get("scenes"), list) or not lesson["scenes"]: raise ValueError("JSON must contain at least one scene.")
+                for role in ("male", "female", "coach"):
+                    spec = lesson["speakers"].get(role)
+                    if not isinstance(spec, dict) or not str(spec.get("voice", "")).strip():
+                        raise ValueError(f"Missing voice for speakers.{role}.")
+            except Exception as exc:
+                messagebox.showerror("Cannot generate Scene & Dialogue lesson", str(exc)); return
+            self.create_log_window()
+            self.log(f"Scene & Dialogue file: {input_path.name}\n")
+            self.log(f"Output filename: {output_name}\n")
+            self.log("Start/end word selection and 25-word splitting are ignored for this lesson type.\n")
+            self.log("Using male, female and English coach voices from the JSON.\n\n")
+            self.generation_running = True
+            self.generate_button.configure(state="disabled")
+            self.progress.start(10)
+            self.status_var.set("Generating...")
+            threading.Thread(target=self.run_scene_lesson, args=(input_path, output_name), daemon=True).start()
+            return
+
         if self.lesson_type_var.get() == "Read Dutch":
             selected_files = self.selected_files()
             if len(selected_files) != 1:
@@ -261,6 +293,24 @@ class AudioGeneratorApp:
         self.progress.start(10)
         self.status_var.set("Generating...")
         threading.Thread(target=self.run_generation, args=(selected, output_name), daemon=True).start()
+
+    def run_scene_lesson(self, input_path: Path, output_name: str) -> None:
+        output_path = OUTPUT_DIR / output_name
+        cmd = [str(PYTHON_EXECUTABLE), "-u", str(SCENE_GENERATOR), str(input_path), str(output_path)]
+        try:
+            env = dict(os.environ); env["PYTHONUNBUFFERED"] = "1"
+            creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+            process = subprocess.Popen(cmd, cwd=ROOT, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding="utf-8", errors="replace", bufsize=1, env=env, creationflags=creationflags)
+            assert process.stdout is not None
+            for line in iter(process.stdout.readline, ""):
+                self.root.after(0, lambda line=line: self.log(line))
+            process.stdout.close(); return_code = process.wait()
+            if return_code == 0: self.root.after(0, lambda: self.finish_generation(True, output_path))
+            else: self.root.after(0, lambda: self.finish_generation(False, None, return_code))
+        except Exception as exc:
+            error_text = str(exc)
+            self.root.after(0, lambda: self.log(f"ERROR: {error_text}\n"))
+            self.root.after(0, lambda: self.finish_generation(False, None, None))
 
     def run_read_dutch(self, input_path: Path, output_name: str) -> None:
         output_path = OUTPUT_DIR / output_name
