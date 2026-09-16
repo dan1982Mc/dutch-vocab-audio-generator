@@ -23,7 +23,21 @@ if not PYTHON_EXECUTABLE.exists():
 
 
 def load_json(path: Path):
-    return json.loads(path.read_text(encoding="utf-8"))
+    """Load JSON, also accepting a Markdown-style fenced JSON file."""
+    text = path.read_text(encoding="utf-8-sig").strip()
+    if not text:
+        raise ValueError(f"{path.name} is empty.")
+    if text.startswith("```"):
+        lines = text.splitlines()
+        if lines and lines[0].strip().startswith("```"):
+            lines = lines[1:]
+        if lines and lines[-1].strip() == "```":
+            lines = lines[:-1]
+        text = "\n".join(lines).strip()
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"{path.name}: invalid JSON ({exc.msg}, line {exc.lineno}, column {exc.colno}).") from exc
 
 
 def load_words(path: Path) -> list[dict]:
@@ -292,7 +306,39 @@ class AudioGeneratorApp:
         self.generate_button.configure(state="disabled")
         self.progress.start(10)
         self.status_var.set("Generating...")
-        threading.Thread(target=self.run_generation, args=(selected, output_name), daemon=True).start()
+        temp_files: list[Path] = []
+        try:
+            for index in range(0, len(selected), 25):
+                chunk = selected[index:index + 25]
+                lesson_number = index // 25 + 1
+                if len(selected) <= 25:
+                    out_name = output_name
+                else:
+                    stem = Path(output_name).stem
+                    suffix = Path(output_name).suffix
+                    out_name = f"{stem}_{lesson_number:02d}{suffix}"
+                temp_path = DATA_DIR / f"_selected_lesson_{lesson_number}.json"
+                temp_path.write_text(json.dumps(chunk, ensure_ascii=False, indent=2), encoding="utf-8")
+                temp_files.append(temp_path)
+                cmd = [str(PYTHON_EXECUTABLE), "-u", str(GENERATOR), str(temp_path), "--output", str(OUTPUT_DIR / out_name)]
+                process = subprocess.Popen(cmd, cwd=ROOT, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding="utf-8", errors="replace", bufsize=1)
+                assert process.stdout is not None
+                for line in iter(process.stdout.readline, ""):
+                    self.root.after(0, lambda line=line: self.log(line))
+                process.stdout.close()
+                return_code = process.wait()
+                if return_code != 0:
+                    raise RuntimeError(f"Generator failed with exit code {return_code}.")
+        except Exception as exc:
+            error_text = str(exc)
+            self.root.after(0, lambda: self.log(f"ERROR: {error_text}\n"))
+            self.root.after(0, lambda: self.finish_generation(False, None, None))
+        else:
+            self.root.after(0, lambda: self.finish_generation(True, OUTPUT_DIR / output_name))
+        finally:
+            for path in temp_files:
+                try: path.unlink()
+                except OSError: pass
 
     def run_scene_lesson(self, input_path: Path, output_name: str) -> None:
         output_path = OUTPUT_DIR / output_name
@@ -330,49 +376,22 @@ class AudioGeneratorApp:
             self.root.after(0, lambda: self.log(f"ERROR: {error_text}\n"))
             self.root.after(0, lambda: self.finish_generation(False, None, None))
 
-    def run_generation(self, selected: list[dict], output_name: str) -> None:
-        import tempfile
-        temp_path: Path | None = None
-        try:
-            with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False, encoding="utf-8", dir=ROOT) as temp:
-                json.dump(selected, temp, ensure_ascii=False, indent=2); temp_path = Path(temp.name)
-            self.root.after(0, lambda: self.log("Temporary selection file created.\n"))
-            output_path = OUTPUT_DIR / output_name
-            cmd = [str(PYTHON_EXECUTABLE), "-u", str(GENERATOR), "--words", str(temp_path), "--output", str(output_path)]
-            self.root.after(0, lambda: self.log("Running generator...\n"))
-            env = dict(os.environ); env["PYTHONUNBUFFERED"] = "1"
-            creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
-            process = subprocess.Popen(cmd, cwd=ROOT, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding="utf-8", errors="replace", bufsize=1, env=env, creationflags=creationflags)
-            assert process.stdout is not None
-            for line in iter(process.stdout.readline, ""): self.root.after(0, lambda line=line: self.log(line))
-            process.stdout.close(); return_code = process.wait()
-            if return_code == 0: self.root.after(0, lambda: self.finish_generation(True, output_path))
-            else: self.root.after(0, lambda: self.finish_generation(False, None, return_code))
-        except Exception as exc:
-            error_text = str(exc)
-            self.root.after(0, lambda: self.log(f"ERROR: {error_text}\n"))
-            self.root.after(0, lambda: self.finish_generation(False, None, None))
-        finally:
-            if temp_path:
-                try: temp_path.unlink(missing_ok=True)
-                except OSError: pass
-
-    def finish_generation(self, success: bool, output_path: Path | None = None, return_code: int | None = None) -> None:
+    def finish_generation(self, success: bool, output_path: Path | None, return_code: int | None = None) -> None:
+        self.progress.stop()
         self.generation_running = False
         self.generate_button.configure(state="normal")
-        self.progress.stop()
         if success:
             self.status_var.set("Completed")
-            self.log(f"\nGeneration completed successfully.\nOutput: {output_path}\n")
-            messagebox.showinfo("Audio generation complete", "The selected audio has been generated into the output folder.")
+            self.log(f"\nCompleted successfully: {output_path}\n")
+            messagebox.showinfo("Audio generation complete", f"Audio generated successfully.\n\n{output_path}")
         else:
             self.status_var.set("Failed")
-            self.log(f"\nGeneration failed. Exit code: {return_code}\n")
-            messagebox.showerror("Audio generation failed", "Generation failed. See the progress window for details.")
+            detail = f"Exit code: {return_code}" if return_code is not None else "See the progress window for details."
+            self.log(f"\nGeneration failed. {detail}\n")
+            messagebox.showerror("Audio generation failed", detail)
 
 
-def main() -> None:
-    root = tk.Tk(); AudioGeneratorApp(root); root.mainloop()
-
-
-if __name__ == "__main__": main()
+if __name__ == "__main__":
+    root = tk.Tk()
+    app = AudioGeneratorApp(root)
+    root.mainloop()
